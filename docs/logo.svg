@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Shipcheck">
+  <path fill="#0B1F33" d="M128 41 L41 220 L128 200 Z"/>
+  <path fill="#14324A" d="M128 41 L215 220 L128 200 Z"/>
+  <path stroke="#C4D0DA" stroke-width="3.5" stroke-linecap="square" d="M128 46 L128 200"/>
+</svg>
