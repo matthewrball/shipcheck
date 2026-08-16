@@ -6,7 +6,7 @@
 
 **Review, repair, and verify repository changes before they land.**
 
-Shipcheck is a standalone, portable [Agent Skill](https://agentskills.io/) that runs a local safety loop for AI-written or AI-edited code. It reviews the current diff, runs the repository's own checks, requests a clean-context review when the host can delegate one, applies bounded fixes, watches delayed GitHub pull-request feedback, and ends with a plain-language receipt. When a PR is open and no review is incoming, it runs a tri-model advisor review so three models interrogate the change before it is called quiet. It uses the account already signed in to the host and never asks for an API key or silently switches to metered API billing.
+Shipcheck is a standalone, portable [Agent Skill](https://agentskills.io/) that runs a local safety loop for AI-written or AI-edited code. It reviews the current diff, runs the repository's own checks, always requests a clean-context review through the host's native delegation when the host has one, applies bounded fixes, snapshots delayed GitHub pull-request feedback, and ends with a plain-language receipt. When a PR is open and no review is incoming, it runs a tri-model advisor review so three models interrogate the change before it is called quiet. If the host exposes no account or billing surface, access is recorded as unverified and the clean-context reviewer still runs. It never asks for an API key or silently switches to metered API billing.
 
 There is one source of truth: [`skills/shipcheck/`](skills/shipcheck/).
 
@@ -17,7 +17,7 @@ flowchart TD
     A["Invoke Shipcheck"] --> B["Capture intent and guardrails"]
     B --> C["Inspect diff, dirty work, and repo rules"]
     C --> D["Run project checks"]
-    D --> E["Clean-context review when available"]
+    D --> E["Clean-context review via host delegation"]
     E --> F{"Fix mode"}
     F -- "review only" --> G["Receipt: findings only"]
     F -- "fix safe issues" --> H["Apply validated bounded fixes"]
@@ -25,17 +25,22 @@ flowchart TD
     H --> I["Retest changed behavior"]
     I --> J{"PR open or push authorized?"}
     J -- "No" --> G
-    J -- "Yes" --> K["Open or update PR"]
-    K --> L["Wait for delayed comments, review threads, and checks"]
-    L --> R{"Review incoming or in progress?"}
-    R -- "No" --> S["Tri-model advisor review"]
-    S --> N["Validate against code and tests"]
-    R -- "Yes" --> M{"New actionable feedback?"}
-    M -- "Yes" --> N
+    J -- "Yes" --> K["Open or update a draft PR"]
+    K --> L["Snapshot PR feedback (--once)"]
+    L --> M{"Blocking feedback?"}
+    M -- "Yes" --> N["Validate against code and tests"]
     N --> H
-    M -- "No, quiet and checks settled" --> O["Receipt: Ready to land"]
-    L --> P{"Timed out or failed checks?"}
-    P -- "Yes" --> Q["Receipt: Needs a decision or Review wait timed out"]
+    M -- "No" --> P{"Checks?"}
+    P -- "Failed or need attention" --> Q["Receipt: Needs a decision"]
+    P -- "Pending or not reported yet" --> W{"User asked to wait?"}
+    P -- "Green or repo has no checks" --> R{"Review incoming or in progress?"}
+    R -- "No" --> S["Tri-model advisor review"]
+    S --> N
+    R -- "Yes" --> O["Receipt: Ready to land"]
+    W -- "Yes" --> T["Background watcher until quiet or timeout"]
+    T --> M
+    T --> U["Receipt: Review wait timed out"]
+    W -- "No" --> Q
 ```
 
 ## Install
@@ -53,6 +58,7 @@ Use `--scope project` to share the skill with one repository. If a host does not
 - An Agent Skills-compatible coding agent
 - A signed-in host account with model access
 - `git`
+- `python3` for the PR feedback watcher
 - GitHub CLI `gh`
 - The target repository's own test, lint, typecheck, or build commands
 - Optional: Codex and two other signed-in model CLIs, or `omc ask`, for tri-model advisor review
@@ -70,8 +76,10 @@ Use shipcheck to fix safe issues. Preserve unrelated dirty files. Do not push.
 ```
 
 ```text
-Use shipcheck to fix safe issues, open a draft PR, and wait for delayed PR feedback before marking it ready.
+Use shipcheck to fix safe issues, open a draft PR, and snapshot delayed PR feedback before marking it ready.
 ```
+
+Authorized PR work opens a draft unless you ask for a ready-for-review PR. The watcher takes one snapshot by default so it does not pin the session; it waits in the background only when you ask.
 
 ## Fix modes
 
