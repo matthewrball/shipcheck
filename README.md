@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.svg" alt="Shipcheck" width="160">
+  <img src="docs/logo.png" alt="Shipcheck" width="192">
 </p>
 
 # Shipcheck
@@ -102,7 +102,7 @@ Shipcheck never merges, lands, or deploys. It never replies to pull-request comm
 ## Repository layout
 
 ```text
-docs/logo.svg                     product mark
+docs/logo.png                     product mark
 skills/shipcheck/                 portable Agent Skill
   SKILL.md                        workflow and safety rules
   agents/openai.yaml              optional OpenAI host metadata
