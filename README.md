@@ -93,7 +93,6 @@ skills/shipcheck/                 portable Agent Skill
   agents/openai.yaml              optional OpenAI host metadata
   scripts/watch_pr_feedback.py    delayed PR feedback watcher
 tests/                            watcher unit tests
-.github/workflows/test.yml        CI
 ```
 
 ## Development
