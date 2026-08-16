@@ -1,6 +1,6 @@
 interface:
   display_name: "Shipcheck"
   short_description: "Review and repair code before landing"
-  default_prompt: "Run Shipcheck to review my changes, apply validated fixes, and watch the pull request for delayed feedback."
+  default_prompt: "Run Shipcheck on my current changes. Default to fix-safe-issues. Do not open, push, or watch a PR unless I already authorized that."
 policy:
   allow_implicit_invocation: false

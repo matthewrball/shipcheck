@@ -10,13 +10,35 @@ import argparse
 import json
 import re
 import subprocess
-import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 
 PASSING = {"SUCCESS", "NEUTRAL", "SKIPPED"}
+PENDING_STATES = {"QUEUED", "IN_PROGRESS", "PENDING", "EXPECTED", "WAITING", "REQUESTED"}
+FAILING_STATES = {"FAILURE", "ERROR"}
+ATTENTION_STATES = {
+    "CANCELLED",
+    "CANCELED",
+    "TIMED_OUT",
+    "STALE",
+    "ACTION_REQUIRED",
+    "STARTUP_FAILURE",
+}
+TERMINAL_STATUSES = {"COMPLETED", "SUCCESS", "FAILURE", "ERROR", "NEUTRAL", "SKIPPED"} | ATTENTION_STATES
+EMPTY_NOISE_REVIEW_STATES = {"APPROVED", "COMMENTED"}
+BOT_AUTHOR_TYPES = {"Bot", "Mannequin"}
+EXIT_CODES = {
+    "settled": 0,
+    "snapshot": 0,
+    "pending": 1,
+    "error": 2,
+    "feedback_ready": 3,
+    "timed_out": 4,
+    "checks_failed": 5,
+    "checks_need_attention": 6,
+}
 
 
 class GhError(RuntimeError):
@@ -109,18 +131,18 @@ class Watcher:
             pullRequest(number:$number) {
               headRefOid
               comments(first:100, after:$commentsCursor) {
-                nodes { id body url createdAt updatedAt author { login } }
+                nodes { id body url createdAt updatedAt author { login __typename } }
                 pageInfo { hasNextPage endCursor }
               }
               reviews(first:100, after:$reviewsCursor) {
-                nodes { id body url state submittedAt commit { oid } author { login } }
+                nodes { id body url state submittedAt commit { oid } author { login __typename } }
                 pageInfo { hasNextPage endCursor }
               }
               reviewThreads(first:100, after:$threadsCursor) {
                 nodes {
                   id isResolved isOutdated path line
                   comments(first:100) {
-                    nodes { id body url createdAt updatedAt author { login } }
+                    nodes { id body url createdAt updatedAt author { login __typename } }
                     pageInfo { hasNextPage endCursor }
                   }
                 }
@@ -157,7 +179,7 @@ class Watcher:
           node(id:$id) {
             ... on PullRequestReviewThread {
               comments(first:100, after:$cursor) {
-                nodes { id body url createdAt updatedAt author { login } }
+                nodes { id body url createdAt updatedAt author { login __typename } }
                 pageInfo { hasNextPage endCursor }
               }
             }
@@ -242,16 +264,48 @@ class Watcher:
     @staticmethod
     def item(kind: str, node: dict, **extra) -> dict:
         updated = node.get("updatedAt") or node.get("submittedAt") or node.get("createdAt")
+        author = node.get("author") or {}
         return {
             "ack_id": f"{kind}:{node['id']}:{updated}",
             "kind": kind,
             "id": node["id"],
             "body": node.get("body") or "",
             "url": node.get("url"),
-            "author": (node.get("author") or {}).get("login"),
+            "author": author.get("login"),
+            "author_type": author.get("__typename"),
             "updated_at": updated,
             **{k: v for k, v in extra.items() if v is not None},
         }
+
+    @staticmethod
+    def is_likely_noise(item: dict) -> bool:
+        if item.get("kind") == "review" and item.get("state") == "DISMISSED":
+            return True
+        body = (item.get("body") or "").strip()
+        if item.get("kind") == "review" and not body and item.get("state") in EMPTY_NOISE_REVIEW_STATES:
+            return True
+        # Bot issue comments are usually CI noise. Bot reviews and thread
+        # comments can be automated code review and must still be classified.
+        return item.get("author_type") in BOT_AUTHOR_TYPES and item.get("kind") == "comment"
+
+    @staticmethod
+    def blocks_ready(item: dict) -> bool:
+        if item.get("is_resolved") or item.get("is_outdated") or item.get("likely_noise"):
+            return False
+        if item.get("kind") == "review" and item.get("state") == "CHANGES_REQUESTED":
+            return True
+        return bool(item.get("after_baseline"))
+
+    def annotate(self, items: list[dict], head: str, baseline: str) -> None:
+        baseline_time = parse_timestamp(baseline)
+        for item in items:
+            updated = item.get("updated_at")
+            item["after_baseline"] = bool(updated and parse_timestamp(updated) >= baseline_time)
+            if "commit" in item:
+                item["on_current_head"] = item["commit"] == head
+            item["baseline_at"] = baseline
+            item["likely_noise"] = self.is_likely_noise(item)
+            item["blocks_ready"] = self.blocks_ready(item)
 
     def checks(self, pr: dict) -> dict:
         data = self.run(["pr", "view", pr["url"], "--json", "headRefOid,statusCheckRollup"])
@@ -265,19 +319,24 @@ class Watcher:
             )
             for item in rollup
         )
-        pending, failing = [], []
+        pending, failing, attention = [], [], []
         for item in rollup:
             status = (item.get("status") or item.get("state") or "").upper()
             conclusion = (item.get("conclusion") or "").upper()
-            if status in {"QUEUED", "IN_PROGRESS", "PENDING", "EXPECTED"}:
+            if status in PENDING_STATES or (status and status not in TERMINAL_STATUSES and not conclusion):
                 pending.append(item)
-            elif status in {"FAILURE", "ERROR"} or (conclusion and conclusion not in PASSING):
+            elif status in FAILING_STATES or conclusion in FAILING_STATES:
+                failing.append(item)
+            elif status in ATTENTION_STATES or conclusion in ATTENTION_STATES:
+                attention.append(item)
+            elif conclusion and conclusion not in PASSING:
                 failing.append(item)
         return {
             "head": data["headRefOid"],
             "signature": signature,
             "pending": pending,
             "failing": failing,
+            "attention": attention,
         }
 
     def watch(
@@ -288,6 +347,7 @@ class Watcher:
         max_wait=1200.0,
         ack=(),
         since: str | None = None,
+        once: bool = False,
     ) -> dict:
         pr = self.resolve_pr(pr_arg)
         path = self.state_path or state_file()
@@ -321,42 +381,71 @@ class Watcher:
             if check["signature"] != last_sig:
                 last_sig = check["signature"]
                 quiet_since = self.clock()
+            self.annotate(items, head, baseline)
             seen = set(pr_state.get("acknowledged", []))
-            baseline_time = parse_timestamp(baseline)
-            for item in items:
-                updated = item.get("updated_at")
-                item["after_baseline"] = bool(updated and parse_timestamp(updated) >= baseline_time)
-                item["on_current_head"] = item.get("commit") in {None, head}
-                item["baseline_at"] = baseline
             unacked = [item for item in items if item["ack_id"] not in seen]
-            if unacked:
+            blocking = [item for item in unacked if item["blocks_ready"]]
+            if once:
+                if blocking:
+                    return self.result("feedback_ready", pr, head, unacked, check)
+                if check["failing"]:
+                    return self.result("checks_failed", pr, head, unacked, check)
+                if check["attention"]:
+                    return self.result("checks_need_attention", pr, head, unacked, check)
+                if check["pending"]:
+                    return self.result("pending", pr, head, unacked, check)
+                return self.finish("snapshot", pr, head, unacked, check, pr_state, path, state)
+            if blocking:
                 return self.result("feedback_ready", pr, head, unacked, check)
             now = self.clock()
             if now >= deadline:
-                return self.result("timed_out", pr, head, [], check)
+                return self.result("timed_out", pr, head, unacked, check)
             if not check["pending"] and check["failing"]:
-                return self.result("checks_failed", pr, head, [], check)
-            if not check["pending"] and not check["failing"] and now - quiet_since >= quiet_window:
-                pr_state["last_observed_head"] = head
-                pr_state["last_observed_at"] = utc_now()
-                save_state(path, state)
-                return self.result("settled", pr, head, [], check)
+                return self.result("checks_failed", pr, head, unacked, check)
+            if not check["pending"] and check["attention"]:
+                return self.result("checks_need_attention", pr, head, unacked, check)
+            if (
+                not check["pending"]
+                and not check["failing"]
+                and not check["attention"]
+                and now - quiet_since >= quiet_window
+            ):
+                return self.finish("settled", pr, head, unacked, check, pr_state, path, state)
             self.sleep(min(poll_interval, max(0.0, deadline - now)))
+
+    def finish(self, status: str, pr: dict, head: str, feedback: list[dict], check: dict, pr_state: dict, path: Path, state: dict) -> dict:
+        pr_state["last_observed_head"] = head
+        pr_state["last_observed_at"] = utc_now()
+        save_state(path, state)
+        return self.result(status, pr, head, feedback, check)
 
     @staticmethod
     def result(status: str, pr: dict, head: str, feedback: list[dict], check: dict) -> dict:
         return {
             "status": status,
-            "pr": {"url": pr["url"], "number": pr["number"], "owner": pr["owner"], "repo": pr["repo"]},
+            "pr": {
+                "url": pr["url"],
+                "number": pr["number"],
+                "owner": pr["owner"],
+                "repo": pr["repo"],
+                "is_cross_repository": bool(pr.get("is_cross_repository")),
+            },
             "head": head,
             "feedback": feedback,
             "pending_checks": check["pending"],
             "failing_checks": check["failing"],
+            "attention_checks": check.get("attention", []),
         }
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Watch a GitHub PR for delayed review feedback without writing to GitHub.",
+        epilog=(
+            "Exit codes: 0 settled or snapshot, 1 pending checks, 2 error, "
+            "3 feedback ready, 4 timed out, 5 checks failed, 6 checks need attention."
+        ),
+    )
     parser.add_argument("--pr", help="PR URL or number; defaults to current branch PR")
     parser.add_argument("--poll-interval", type=float, default=15.0)
     parser.add_argument("--quiet-window", type=float, default=120.0)
@@ -364,17 +453,22 @@ def main(argv=None) -> int:
     parser.add_argument("--ack", action="append", default=[], help="acknowledge a returned ack_id")
     parser.add_argument("--since", help="UTC watch baseline captured before PR open/push")
     parser.add_argument("--state-dir", type=Path, help="override the Git-local state directory")
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="fetch one snapshot and exit; do not poll for the quiet window",
+    )
     args = parser.parse_args(argv)
     try:
         state_path = args.state_dir / "pr-feedback-state.json" if args.state_dir else None
         result = Watcher(state_path=state_path).watch(
-            args.pr, args.poll_interval, args.quiet_window, args.max_wait, args.ack, args.since
+            args.pr, args.poll_interval, args.quiet_window, args.max_wait, args.ack, args.since, args.once
         )
     except Exception as exc:
         print(json.dumps({"status": "error", "error": str(exc)}))
-        return 2
+        return EXIT_CODES["error"]
     print(json.dumps(result, sort_keys=True))
-    return {"settled": 0, "feedback_ready": 3, "timed_out": 4, "checks_failed": 5}.get(result["status"], 2)
+    return EXIT_CODES.get(result["status"], EXIT_CODES["error"])
 
 
 if __name__ == "__main__":

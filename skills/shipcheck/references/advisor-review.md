@@ -4,7 +4,7 @@ Use this when a Shipcheck-watched PR has no incoming or in-progress review. Thre
 
 ## When to run
 
-Run after `watch_pr_feedback.py` returns `settled` or `timed_out` with no review-kind items (`review` or `thread_comment`), and none of these are true:
+Run after `watch_pr_feedback.py` returns `snapshot`, `settled`, or `timed_out` with no review-kind items (`review` or `thread_comment`), and none of these are true:
 
 - requested reviewers are still pending;
 - a GitHub review is pending or draft;
