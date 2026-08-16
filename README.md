@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.svg" alt="Shipcheck" width="128">
+</p>
+
 # Shipcheck
 
 **Review, repair, and verify repository changes before they land.**
@@ -88,6 +92,7 @@ Shipcheck never merges, lands, or deploys. It never replies to pull-request comm
 ## Repository layout
 
 ```text
+docs/logo.svg                     product mark
 skills/shipcheck/                 portable Agent Skill
   SKILL.md                        workflow and safety rules
   agents/openai.yaml              optional OpenAI host metadata
