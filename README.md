@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.svg" alt="Shipcheck" width="128">
+  <img src="docs/logo.svg" alt="Shipcheck" width="160">
 </p>
 
 # Shipcheck
