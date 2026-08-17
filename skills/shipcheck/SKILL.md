@@ -1,6 +1,6 @@
 ---
 name: shipcheck
-description: Review, repair, and verify repository changes before they land. Use when the user explicitly asks to run Shipcheck, or to check work before landing, pushing, or merging, or wants a ready-to-land receipt. Covers local changes and GitHub pull requests: bounded review fixes, project checks, delayed PR feedback, tri-model advisor review when no PR review is incoming, and a shipping receipt. Never merge, deploy, resolve review threads, submit reviews, or silently use metered API billing.
+description: "Review, repair, and verify repository changes before they land. Use when the user explicitly asks to run Shipcheck, or to check work before landing, pushing, or merging, or wants a ready-to-land receipt. Covers local changes and GitHub pull requests: bounded review fixes, project checks, delayed PR feedback, tri-model advisor review when no PR review is incoming, and a shipping receipt. Never merge, deploy, resolve review threads, submit reviews, or silently use metered API billing."
 license: MIT
 compatibility: Requires git, gh, and python3
 ---
