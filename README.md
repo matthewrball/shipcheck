@@ -117,7 +117,12 @@ skills/shipcheck/                 portable Agent Skill
   references/advisor-review.md    tri-model advisor protocol
   scripts/watch_pr_feedback.py    delayed PR feedback watcher
 tests/                            watcher unit tests
+SUPPORT.md                        optional Lightning support pack (21k sats)
 ```
+
+## Optional support pack
+
+The MIT skill stays free. An optional one-time Lightning add-on (host recipes + receipt template) is documented in [SUPPORT.md](SUPPORT.md).
 
 ## Development
 
