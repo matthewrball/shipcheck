@@ -20,7 +20,9 @@ gh skill install matthewrball/shipcheck shipcheck --agent universal --scope user
 
 ## Pay (BOLT12)
 
-Paste this reusable offer into a wallet that supports BOLT12 (Phoenix, Zeus, etc.). First inbound opens a Lightning channel via the ACINQ LSP.
+Tap this if your wallet supports BOLT12: [Pay 21,000 sats](lightning:lno1zrxq8pjw7qjlm68mtp7e3yvxee4y5xrgjhhyf2fxhlphpckrvevh50u0qdpyxyzy7acq3w6gq3fyrwxu7ldqk60qmfwa0z8v94yek4sh7xs02qsr9frx63d9vyjvch23x8ltg0596saaan362cfh88uf8dyqtcuy5ecqqvcfq2plqzpq0h65fd9zx084za55elvc6elg0krqeyxsujrf8s7hy6j29plm56gvwllt3x83fyc4dhu74tz9qvj8d8w9p62w86ld0al42d9l5uyas8nr5mdc3ulcsfru6j3lvrrw2qqsqudzktpu2sfvafctuk7vpc7evg)
+
+Or paste this reusable offer into Phoenix, Zeus, or another BOLT12 wallet. First inbound opens a Lightning channel via the ACINQ LSP.
 
 ```
 lno1zrxq8pjw7qjlm68mtp7e3yvxee4y5xrgjhhyf2fxhlphpckrvevh50u0qdpyxyzy7acq3w6gq3fyrwxu7ldqk60qmfwa0z8v94yek4sh7xs02qsr9frx63d9vyjvch23x8ltg0596saaan362cfh88uf8dyqtcuy5ecqqvcfq2plqzpq0h65fd9zx084za55elvc6elg0krqeyxsujrf8s7hy6j29plm56gvwllt3x83fyc4dhu74tz9qvj8d8w9p62w86ld0al42d9l5uyas8nr5mdc3ulcsfru6j3lvrrw2qqsqudzktpu2sfvafctuk7vpc7evg
