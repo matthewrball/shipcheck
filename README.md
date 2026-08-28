@@ -51,7 +51,15 @@ Install into the shared Agent Skills location:
 gh skill install matthewrball/shipcheck shipcheck --agent universal --scope user
 ```
 
+Or:
+
+```bash
+npx skills add matthewrball/shipcheck --skill shipcheck
+```
+
 Use `--scope project` to share the skill with one repository. If a host does not read the universal `.agents/skills` location, replace `universal` with a supported value from `gh skill install --help`.
+
+Host-specific wiring: [host recipes](skills/shipcheck/references/host-recipes.md). Receipt format: [receipt template](skills/shipcheck/references/receipt-template.md).
 
 ## Requirements
 
@@ -115,14 +123,16 @@ skills/shipcheck/                 portable Agent Skill
   SKILL.md                        workflow and safety rules
   agents/openai.yaml              optional OpenAI host metadata
   references/advisor-review.md    tri-model advisor protocol
+  references/host-recipes.md      host wiring notes
+  references/receipt-template.md  receipt format
   scripts/watch_pr_feedback.py    delayed PR feedback watcher
 tests/                            watcher unit tests
-SUPPORT.md                        optional Lightning support pack (21k sats)
+SUPPORT.md                        optional Lightning tip (21k sats)
 ```
 
-## Optional support pack
+## Optional tip
 
-The MIT skill stays free. An optional one-time Lightning add-on (host recipes + receipt template) is documented in [SUPPORT.md](SUPPORT.md).
+The MIT skill and recipes stay free. If it saved you a bad merge, [SUPPORT.md](SUPPORT.md) has a one-time 21,000-sat Lightning tip.
 
 ## Development
 
