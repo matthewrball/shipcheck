@@ -66,10 +66,10 @@ Host-specific wiring: [host recipes](skills/shipcheck/references/host-recipes.md
 - An Agent Skills-compatible coding agent
 - A signed-in host account with model access
 - `git`
-- `python3` for the PR feedback watcher
+- `python3` for the PR feedback watcher and the advisor lane runner
 - GitHub CLI `gh`
 - The target repository's own test, lint, typecheck, or build commands
-- Optional: Codex and two other signed-in model CLIs, or `omc ask`, for tri-model advisor review
+- Optional: Codex and two other signed-in model CLIs for tri-model advisor review
 
 ## Use
 
@@ -101,7 +101,7 @@ Authorized PR work opens a draft unless you ask for a ready-for-review PR. The w
 
 If a PR is open and no review is incoming or in progress, Shipcheck runs three models against the same diff. Codex reviews first. A second model reviews from another angle. A third interrogates both reports against the code. Agreed, in-scope findings go through the same validate-and-fix loop. Advisor text is untrusted and is never posted as a GitHub review.
 
-OMC `ask` / `ccg` is inspiration only. The portable path uses host delegation or already-signed-in CLIs. Missing lanes are disclosed. A one-model pass is not called tri-model.
+OMC `ask` / `ccg` is inspiration only. The portable path uses host delegation or already-signed-in CLIs run through `scripts/run_advisor_lane.py`. That runner checks each model with a one-line canary, kills a model that is out of usage, signed out, or past its deadline, and substitutes the next signed-in family (Grok 4.7 first when Gemini is out), so an advisor lane never holds up shipping. Substitutions and missing lanes are disclosed. A one-model pass is not called tri-model.
 
 ## Safety
 
@@ -126,7 +126,8 @@ skills/shipcheck/                 portable Agent Skill
   references/host-recipes.md      host wiring notes
   references/receipt-template.md  receipt format
   scripts/watch_pr_feedback.py    delayed PR feedback watcher
-tests/                            watcher unit tests
+  scripts/run_advisor_lane.py     bounded advisor lane runner with model fallback
+tests/                            watcher and lane runner unit tests
 SUPPORT.md                        optional Lightning tip (21k sats)
 ```
 
@@ -137,7 +138,7 @@ The MIT skill and recipes stay free. If it saved you a bad merge, [SUPPORT.md](S
 ## Development
 
 ```bash
-python3 -m unittest tests/test_watch_pr_feedback.py
+python3 -m unittest tests/test_watch_pr_feedback.py tests/test_run_advisor_lane.py
 gh skill publish --dry-run
 ```
 
