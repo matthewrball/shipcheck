@@ -95,6 +95,30 @@ def save_state(path: Path, state: dict) -> None:
     path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
 
 
+ACTIONS_JOB_ID = re.compile(r"/actions/runs/\d+/jobs?/(\d+)")
+
+
+def latest_runs(rollup: list[dict]) -> list[dict]:
+    """Keep only the newest run of each check.
+
+    A re-run, or a workflow that cancels superseded runs, leaves the older runs in the rollup.
+    They say nothing about the head once a newer run of the same check exists. Actions job ids
+    grow with every run, so they order runs even when a cancelled run never started.
+    """
+    latest: dict[tuple[str, str, str], tuple[tuple, dict]] = {}
+    for index, item in enumerate(rollup):
+        key = (
+            item.get("__typename") or "",
+            item.get("workflowName") or "",
+            item.get("name") or item.get("context") or "",
+        )
+        job = ACTIONS_JOB_ID.search(item.get("detailsUrl") or item.get("targetUrl") or "")
+        order = (int(job.group(1)) if job else 0, item.get("startedAt") or "", item.get("completedAt") or "", index)
+        if key not in latest or order > latest[key][0]:
+            latest[key] = (order, item)
+    return [item for _, item in latest.values()]
+
+
 class Watcher:
     def __init__(self, run=run_gh, clock=time.monotonic, sleep=time.sleep, state_path: Path | None = None):
         self.run = run
@@ -106,7 +130,7 @@ class Watcher:
         args = ["pr", "view"]
         if pr:
             args.append(pr)
-        args += ["--json", "url,number,headRefOid,isCrossRepository"]
+        args += ["--json", "url,number,headRefOid,isCrossRepository,author"]
         data = self.run(args)
         owner, repo = parse_repo(data["url"])
         return {
@@ -116,6 +140,7 @@ class Watcher:
             "repo": repo,
             "head": data["headRefOid"],
             "is_cross_repository": bool(data.get("isCrossRepository")),
+            "author": (data.get("author") or {}).get("login"),
         }
 
     def graphql(
@@ -290,13 +315,14 @@ class Watcher:
 
     @staticmethod
     def blocks_ready(item: dict) -> bool:
-        if item.get("is_resolved") or item.get("is_outdated") or item.get("likely_noise"):
+        # The PR author's own comments (a CLA signature, a note to reviewers) are not feedback.
+        if item.get("is_resolved") or item.get("is_outdated") or item.get("likely_noise") or item.get("by_pr_author"):
             return False
         if item.get("kind") == "review" and item.get("state") == "CHANGES_REQUESTED":
             return True
         return bool(item.get("after_baseline"))
 
-    def annotate(self, items: list[dict], head: str, baseline: str) -> None:
+    def annotate(self, items: list[dict], head: str, baseline: str, pr_author: str | None = None) -> None:
         baseline_time = parse_timestamp(baseline)
         for item in items:
             updated = item.get("updated_at")
@@ -305,11 +331,12 @@ class Watcher:
                 item["on_current_head"] = item["commit"] == head
             item["baseline_at"] = baseline
             item["likely_noise"] = self.is_likely_noise(item)
+            item["by_pr_author"] = bool(pr_author) and item.get("author") == pr_author
             item["blocks_ready"] = self.blocks_ready(item)
 
     def checks(self, pr: dict) -> dict:
         data = self.run(["pr", "view", pr["url"], "--json", "headRefOid,statusCheckRollup"])
-        rollup = data.get("statusCheckRollup") or []
+        rollup = latest_runs(data.get("statusCheckRollup") or [])
         signature = sorted(
             (
                 item.get("__typename") or "",
@@ -381,7 +408,7 @@ class Watcher:
             if check["signature"] != last_sig:
                 last_sig = check["signature"]
                 quiet_since = self.clock()
-            self.annotate(items, head, baseline)
+            self.annotate(items, head, baseline, pr.get("author"))
             seen = set(pr_state.get("acknowledged", []))
             unacked = [item for item in items if item["ack_id"] not in seen]
             blocking = [item for item in unacked if item["blocks_ready"]]
