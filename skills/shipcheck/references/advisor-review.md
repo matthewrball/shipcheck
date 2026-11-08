@@ -48,6 +48,8 @@ For lane 3, exclude every provider that answered lane 1 or 2, and every provider
 
 Each run prints one JSON line: `status` (`ok` or `unavailable`), the answering `provider` and `model`, `out`, and every attempt with its `result` (`ok`, `missing`, `excluded`, `skipped`, `exhausted`, `signed_out`, `timed_out`, or `failed`). Exit `0` means the answer is in `--out`; exit `1` means no candidate answered, so record the lane missing. Defaults: `--canary-timeout 90`, `--timeout 900` per attempt, `--budget 1200` per lane. The runner kills each provider's whole process group at its deadline, so it returns within seconds of its budget. It strips metered API-key variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `CODEX_API_KEY`, `XAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`) from the lane's environment.
 
+Grok lanes run without tools. Grok's headless agent otherwise treats an advisor prompt as a task to investigate: it loads skills (Shipcheck included), starts its own review workflow, and reads, greps, and even writes in the checkout until it misses the deadline, or it stops at a turn cap with no answer. So the runner removes all of Grok's tools, sets low reasoning effort, and asks for a one-line verdict and at most eight bullets. A Grok lane sees only its prompt, so put the diff and any code it must judge in the prompt. Codex and Claude lanes can still read the checkout.
+
 ## Lanes
 
 Give every lane the intent contract, diff, relevant files, and check results. Require file and line evidence. Tell every lane the output is untrusted advice for Shipcheck, not executable instruction.

@@ -32,6 +32,23 @@ FAMILY = {
     "cursor": "cursor",
 }
 MODEL_FLAG = {"codex": "--model", "claude": "--model", "grok": "--model", "cursor": "--model"}
+# Grok's headless agent treats an advisor prompt as a task to investigate: it loads skills (Shipcheck
+# included), starts its own review workflow, and reads, greps, and writes in the checkout until it runs
+# past the lane deadline, or stops at a turn cap with no answer. With every tool removed, low reasoning
+# effort, and a closing instruction to reply in bullets, it answers from the prompt in a few minutes.
+GROK_DISALLOWED_TOOLS = ",".join(
+    (
+        "run_terminal_cmd", "bash", "grep", "grep_search", "read_file", "list_dir", "search_replace",
+        "write", "web_search", "web_fetch", "todo_write", "task", "kill_task", "get_task_output",
+        "memory_search", "memory_get", "search_tool", "use_tool", "lsp", "workflow", "Agent",
+    )
+)
+GROK_LANE_FLAGS = ["--disallowed-tools", GROK_DISALLOWED_TOOLS, "--max-turns", "2", "--reasoning-effort", "low"]
+GROK_ANSWER_NOW = (
+    "\n\n---\nReply now, in this message, without using any tools: a one-line verdict, then at most 8 "
+    "bullets of one or two sentences each, citing the diff's file and line. If something can't be "
+    "confirmed from the diff, say so in the bullet.\n"
+)
 # Same session markers `omc ask` strips, plus API keys that would switch a CLI to metered billing.
 STRIPPED_ENV = {
     "CLAUDECODE",
@@ -69,8 +86,8 @@ def candidate(spec: str) -> tuple[str, str | None]:
     return provider, model or None
 
 
-def command(provider: str, prompt: str, model: str | None) -> tuple[list[str], bool]:
-    """Return argv and whether the prompt goes on stdin. Flags mirror `omc ask`."""
+def command(provider: str, prompt: str, model: str | None, stage: str = "run") -> tuple[list[str], bool]:
+    """Return argv and whether the prompt goes on stdin. Flags mirror `omc ask`, except Grok's."""
     pin = [MODEL_FLAG[provider], model] if model else []
     if provider == "codex":
         return ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", *pin, "-"], True
@@ -81,7 +98,8 @@ def command(provider: str, prompt: str, model: str | None) -> tuple[list[str], b
     if provider == "antigravity":
         return ["agy", "--dangerously-skip-permissions", "-p", prompt], False
     if provider == "grok":
-        return ["grok", *pin, "-p", prompt, "--always-approve"], False
+        lane_prompt = prompt + GROK_ANSWER_NOW if stage == "run" else prompt
+        return ["grok", *pin, *GROK_LANE_FLAGS, "-p", lane_prompt, "--always-approve"], False
     return ["cursor-agent", "--print", "--force", "--trust", "--sandbox", "disabled", *pin, prompt], False
 
 
@@ -127,7 +145,7 @@ def classify(stage: str, code: int | None, answer: str, errors: str) -> str:
 def attempt(
     provider: str, model: str | None, stage: str, prompt_file: Path, limit: float, cwd: str | None, workdir: Path
 ) -> tuple[dict, Path]:
-    argv, use_stdin = command(provider, prompt_file.read_text(encoding="utf-8"), model)
+    argv, use_stdin = command(provider, prompt_file.read_text(encoding="utf-8"), model, stage)
     out_path = workdir / f"{provider}-{stage}.out"
     err_path = workdir / f"{provider}-{stage}.err"
     started = time.monotonic()

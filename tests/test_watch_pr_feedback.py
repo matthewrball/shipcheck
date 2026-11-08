@@ -79,12 +79,13 @@ def page(head="abc", comments=(), reviews=(), threads=(), comments_next=None, re
     }
 
 
-def pull(cross=False):
+def pull(cross=False, author="author"):
     return {
         "url": "https://github.com/acme/app/pull/7",
         "number": 7,
         "headRefOid": "abc",
         "isCrossRepository": cross,
+        "author": {"login": author},
     }
 
 
@@ -357,6 +358,43 @@ class WatchPrFeedbackTests(unittest.TestCase):
         self.assertEqual(result["status"], "checks_need_attention")
         self.assertEqual(result["attention_checks"][0]["conclusion"], "CANCELLED")
 
+    def test_superseded_cancelled_run_does_not_need_attention(self):
+        cancelled = {
+            "__typename": "CheckRun",
+            "workflowName": "CI",
+            "name": "ci",
+            "status": "COMPLETED",
+            "conclusion": "CANCELLED",
+            "detailsUrl": "https://github.com/acme/app/actions/runs/100/job/1000",
+        }
+        passed = {**cancelled, "conclusion": "SUCCESS", "detailsUrl": "https://github.com/acme/app/actions/runs/101/job/1010"}
+        gh = FakeGh([pull()], [page()], [{"headRefOid": "abc", "statusCheckRollup": [passed, cancelled]}])
+        with tempfile.TemporaryDirectory() as tmp:
+            result = watch.Watcher(gh, state_path=Path(tmp) / "state.json").watch(once=True)
+        self.assertEqual(result["status"], "snapshot")
+        self.assertEqual(result["attention_checks"], [])
+
+    def test_same_job_name_in_different_workflows_counts_separately(self):
+        failed = {
+            "__typename": "CheckRun",
+            "workflowName": "CI",
+            "name": "build",
+            "status": "COMPLETED",
+            "conclusion": "FAILURE",
+            "detailsUrl": "https://github.com/acme/app/actions/runs/100/job/1000",
+        }
+        passed = {
+            **failed,
+            "workflowName": "Release",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/app/actions/runs/101/job/1010",
+        }
+        gh = FakeGh([pull()], [page()], [{"headRefOid": "abc", "statusCheckRollup": [failed, passed]}])
+        with tempfile.TemporaryDirectory() as tmp:
+            result = watch.Watcher(gh, state_path=Path(tmp) / "state.json").watch(once=True)
+        self.assertEqual(result["status"], "checks_failed")
+        self.assertEqual([check["workflowName"] for check in result["failing_checks"]], ["CI"])
+
     def test_once_snapshot_when_clean(self):
         gh = FakeGh([pull()], [page()], [clean_checks()])
         with tempfile.TemporaryDirectory() as tmp:
@@ -393,6 +431,17 @@ class WatchPrFeedbackTests(unittest.TestCase):
             )
         self.assertEqual(result["status"], "feedback_ready")
         self.assertTrue(result["feedback"][0]["blocks_ready"])
+
+    def test_pr_author_comment_does_not_block(self):
+        signature = comment(body="I have read the CLA Document and I hereby sign the CLA", at="2026-08-14T00:00:02Z", author="matt")
+        gh = FakeGh([pull(author="matt")], [page(comments=[signature])], [clean_checks()])
+        with tempfile.TemporaryDirectory() as tmp:
+            result = watch.Watcher(gh, state_path=Path(tmp) / "state.json").watch(
+                once=True, since="2026-08-14T00:00:01Z"
+            )
+        self.assertEqual(result["status"], "snapshot")
+        self.assertTrue(result["feedback"][0]["by_pr_author"])
+        self.assertFalse(result["feedback"][0]["blocks_ready"])
 
     def test_cross_repository_flag_is_surfaced(self):
         gh = FakeGh([pull(cross=True)], [page()], [clean_checks()])

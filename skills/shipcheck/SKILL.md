@@ -75,13 +75,13 @@ Exit codes: `0` settled or snapshot, `1` pending checks, `3` feedback ready, `4`
 
 The watcher:
 
-- reads comments, reviews, review threads, statuses, and check runs through `gh`;
+- reads comments, reviews, review threads, statuses, and check runs through `gh`, counting only the newest run of each check, so a run that a newer run replaced (often cancelled) never needs attention;
 - stores acknowledgement state under `git rev-parse --git-path shipcheck`;
 - snapshots once with `--once`, or polls until settle/timeout without it;
 - outputs machine-readable JSON;
 - never writes to GitHub.
 
-Classify every item using `after_baseline`, `on_current_head` (present only when the item has a commit), `is_resolved`, `is_outdated`, `likely_noise`, and `blocks_ready`. `blocks_ready` is the mechanical subset that prevents `Ready to land`. Typical non-blocking items: pre-baseline comments, resolved or outdated threads, empty `APPROVED`/`COMMENTED` reviews, any `DISMISSED` review, and bot issue comments. Bot reviews and thread comments can be automated code review and still block. `CHANGES_REQUESTED` blocks even when it predates the baseline or the body is empty. A question-only review, or feedback that conflicts with intent, needs a user decision.
+Classify every item using `after_baseline`, `on_current_head` (present only when the item has a commit), `is_resolved`, `is_outdated`, `likely_noise`, `by_pr_author`, and `blocks_ready`. `blocks_ready` is the mechanical subset that prevents `Ready to land`. Typical non-blocking items: pre-baseline comments, resolved or outdated threads, empty `APPROVED`/`COMMENTED` reviews, any `DISMISSED` review, bot issue comments, and the PR author's own comments. Bot reviews and thread comments can be automated code review and still block. `CHANGES_REQUESTED` blocks even when it predates the baseline or the body is empty. A question-only review, or feedback that conflicts with intent, needs a user decision.
 
 Ack an item with repeatable `--ack <ack_id>` only after its work and checks finish. Interrupted work must be delivered again. Non-blocking items may be acked so they drop out of later output; settlement does not require that. Never ack an actionable item before its fix is done.
 
