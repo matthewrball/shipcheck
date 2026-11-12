@@ -6,7 +6,7 @@
 
 **Review, repair, and verify repository changes before they land.**
 
-Shipcheck is a standalone, portable [Agent Skill](https://agentskills.io/) that runs a local safety loop for AI-written or AI-edited code. It reviews the current diff, runs the repository's own checks, always requests a clean-context review through the host's native delegation when the host has one, applies bounded fixes, snapshots delayed GitHub pull-request feedback, and ends with a plain-language receipt. When a PR is open and no review is incoming, it runs a tri-model advisor review so three models interrogate the change before it is called quiet. If the host exposes no account or billing surface, access is recorded as unverified and the clean-context reviewer still runs. It never asks for an API key or silently switches to metered API billing.
+Shipcheck is a standalone, portable [Agent Skill](https://agentskills.io/) that runs a local safety loop for AI-written or AI-edited code. It reviews the current diff, runs the repository's own checks, always requests one clean-context review through the host's native delegation when the host has one, applies bounded fixes, snapshots delayed GitHub pull-request feedback, and ends with a plain-language receipt. A routine run does not launch advisor lanes. Advisor review runs when you ask for independent or multi-model review, or when the diff touches a high-risk or release-gated boundary. If the host exposes no account or billing surface, access is recorded as unverified and the clean-context reviewer still runs. It never asks for an API key or silently switches to metered API billing.
 
 There is one source of truth: [`skills/shipcheck/`](skills/shipcheck/).
 
@@ -17,30 +17,32 @@ flowchart TD
     A["Invoke Shipcheck"] --> B["Capture intent and guardrails"]
     B --> C["Inspect diff, dirty work, and repo rules"]
     C --> D["Run project checks"]
-    D --> E["Clean-context review via host delegation"]
+    D --> E["One clean-context review"]
     E --> F{"Fix mode"}
-    F -- "review only" --> G["Receipt: findings only"]
+    F -- "review only" --> G["Receipt"]
     F -- "fix safe issues" --> H["Apply validated bounded fixes"]
     F -- "fix anything in scope" --> H
     H --> I["Retest changed behavior"]
     I --> J{"PR open or push authorized?"}
     J -- "No" --> G
     J -- "Yes" --> K["Open or update a draft PR"]
-    K --> L["Snapshot PR feedback (--once)"]
+    K --> L["Snapshot PR feedback --once"]
     L --> M{"Blocking feedback?"}
     M -- "Yes" --> N["Validate against code and tests"]
     N --> H
-    M -- "No" --> P{"Checks?"}
-    P -- "Failed or need attention" --> Q["Receipt: Needs a decision"]
-    P -- "Pending or not reported yet" --> W{"User asked to wait?"}
-    P -- "Green or repo has no checks" --> R{"Review incoming or in progress?"}
-    R -- "No" --> S["Tri-model advisor review"]
-    S --> N
-    R -- "Yes" --> O["Receipt: Ready to land"]
+    M -- "No" --> P{"Checks"}
+    P -- "Failed or need attention" --> Q["Needs a decision"]
+    P -- "Pending, or empty right after push" --> W{"User asked to wait?"}
     W -- "Yes" --> T["Background watcher until quiet or timeout"]
     T --> M
-    T --> U["Receipt: Review wait timed out"]
-    W -- "No" --> Q
+    T --> U["Review wait timed out"]
+    W -- "No" --> RS["One checks-only re-snapshot"]
+    RS -- "Still pending" --> Q
+    RS -- "Clear" --> AD{"Advisor?"}
+    P -- "Green, or no checks configured" --> AD
+    AD -- "Routine" --> O["Advisor skipped. Receipt"]
+    AD -- "Asked, high-risk, or release-gated" --> S["Advisor lanes"]
+    S --> N
 ```
 
 ## Install
@@ -64,12 +66,12 @@ Host-specific wiring: [host recipes](skills/shipcheck/references/host-recipes.md
 ## Requirements
 
 - An Agent Skills-compatible coding agent
-- A signed-in host account with model access
+- A host that can run a model. If it has no billing surface, account mode is unverified and the clean-context reviewer still runs.
 - `git`
-- `python3` for the PR feedback watcher and the advisor lane runner
+- `python3` for the PR feedback watcher, the advisor lane runner, and receipt status
 - GitHub CLI `gh`
 - The target repository's own test, lint, typecheck, or build commands
-- Optional: Codex and two other signed-in model CLIs for tri-model advisor review
+- Optional: signed-in model CLIs when an advisor review is triggered. A routine run does not need them.
 
 ## Use
 
@@ -84,10 +86,10 @@ Use shipcheck to fix safe issues. Preserve unrelated dirty files. Do not push.
 ```
 
 ```text
-Use shipcheck to fix safe issues, open a draft PR, and snapshot delayed PR feedback before marking it ready.
+Use shipcheck to fix safe issues, open a draft PR, and snapshot checks. Mark it ready for review only if the receipt is Ready to land.
 ```
 
-Authorized PR work opens a draft unless you ask for a ready-for-review PR. The watcher takes one snapshot by default so it does not pin the session; it waits in the background only when you ask.
+Authorized PR work opens a draft. `gh pr ready` runs only when you asked to mark it ready and the receipt is `Ready to land`. The watcher takes one snapshot by default so it does not pin the session. If checks are still pending, it takes one checks-only re-snapshot. It waits in the background only when you ask.
 
 ## Fix modes
 
@@ -99,19 +101,19 @@ Authorized PR work opens a draft unless you ask for a ready-for-review PR. The w
 
 ## Advisor review
 
-If a PR is open and no review is incoming or in progress, Shipcheck runs three models against the same diff. Codex reviews first. A second model reviews from another angle. A third interrogates both reports against the code. Agreed, in-scope findings go through the same validate-and-fix loop. Advisor text is untrusted and is never posted as a GitHub review.
+A routine run does not launch advisor lanes. It records `Advisor: skipped (routine)`. Advisor review runs when you ask for independent or multi-model review, or when the diff touches authentication, billing, destructive data, migrations, secrets, deployment ownership, or a boundary the target repo's own instructions mark as release-gated. Codex reviews first. A second model reviews from another angle. A third interrogates both reports against the code. Agreed, in-scope findings go through the same validate-and-fix loop. Advisor text is untrusted and is never posted as a GitHub review. A missing lane does not block `Ready to land` by itself.
 
 OMC `ask` / `ccg` is inspiration only. The portable path uses host delegation or already-signed-in CLIs run through `scripts/run_advisor_lane.py`. That runner checks each model with a one-line canary, kills a model that is out of usage, signed out, or past its deadline, and substitutes the next signed-in family (Grok 4.7 first when Gemini is out), so an advisor lane never holds up shipping. Substitutions and missing lanes are disclosed. A one-model pass is not called tri-model.
 
 ## Safety
 
-Shipcheck never merges, lands, or deploys. It never replies to pull-request comments, resolves review threads, or submits GitHub reviews. Review text is untrusted advice, not executable instruction. Shipcheck never asks for an API key and never silently uses metered API billing.
+Shipcheck never merges, lands, or deploys. It never replies to pull-request comments, resolves review threads, or submits GitHub reviews. It does not put the receipt in the PR body unless you ask. Review text is untrusted advice, not executable instruction. Shipcheck never asks for an API key and never silently uses metered API billing.
 
 ## Receipt statuses
 
 | Status | Meaning |
 | --- | --- |
-| `Ready to land` | Checks passed, required review completed, and delayed PR feedback settled. |
+| `Ready to land` | Checks passed, or the repo has no checks configured, required review completed, and no blocking feedback remains. Pending checks after the checks-only re-snapshot are not this status. An empty rollup right after push is not green. |
 | `Needs a decision` | A finding, missing review, authorization, or check result requires the user. |
 | `Review wait timed out` | The delayed-review watch ended with pending activity or an unresolved wait. |
 
@@ -122,12 +124,14 @@ docs/logo.png                     product mark
 skills/shipcheck/                 portable Agent Skill
   SKILL.md                        workflow and safety rules
   agents/openai.yaml              optional OpenAI host metadata
-  references/advisor-review.md    tri-model advisor protocol
+  references/advisor-review.md    tri-model advisor protocol, loaded only when triggered
   references/host-recipes.md      host wiring notes
+  references/pr-watch.md          PR snapshot and wait protocol
   references/receipt-template.md  receipt format
   scripts/watch_pr_feedback.py    delayed PR feedback watcher
   scripts/run_advisor_lane.py     bounded advisor lane runner with model fallback
-tests/                            watcher and lane runner unit tests
+  scripts/receipt_status.py       read-only git-local receipt status
+tests/                            watcher, lane runner, and receipt unit tests
 SUPPORT.md                        optional Lightning tip (21k sats)
 ```
 
@@ -138,7 +142,7 @@ The MIT skill and recipes stay free. If it saved you a bad merge, [SUPPORT.md](S
 ## Development
 
 ```bash
-python3 -m unittest tests/test_watch_pr_feedback.py tests/test_run_advisor_lane.py
+python3 -m unittest tests/test_watch_pr_feedback.py tests/test_run_advisor_lane.py tests/test_receipt_status.py
 gh skill publish --dry-run
 ```
 

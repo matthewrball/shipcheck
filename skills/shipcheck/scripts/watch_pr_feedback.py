@@ -375,8 +375,22 @@ class Watcher:
         ack=(),
         since: str | None = None,
         once: bool = False,
+        checks_only: bool = False,
     ) -> dict:
         pr = self.resolve_pr(pr_arg)
+        if checks_only:
+            check = self.checks(pr)
+            if check["failing"]:
+                status = "checks_failed"
+            elif check["attention"]:
+                status = "checks_need_attention"
+            elif check["pending"]:
+                status = "pending"
+            else:
+                status = "snapshot"
+            result = self.result(status, pr, check["head"], None, check)
+            result["checks_only"] = True
+            return result
         path = self.state_path or state_file()
         state = load_state(path)
         key = pr["url"]
@@ -462,6 +476,7 @@ class Watcher:
             "pending_checks": check["pending"],
             "failing_checks": check["failing"],
             "attention_checks": check.get("attention", []),
+            "check_count": len(check["signature"]),
         }
 
 
@@ -485,11 +500,23 @@ def main(argv=None) -> int:
         action="store_true",
         help="fetch one snapshot and exit; do not poll for the quiet window",
     )
+    parser.add_argument(
+        "--checks-only",
+        action="store_true",
+        help="re-read checks once; do not fetch review feedback, write state, or poll",
+    )
     args = parser.parse_args(argv)
     try:
         state_path = args.state_dir / "pr-feedback-state.json" if args.state_dir else None
         result = Watcher(state_path=state_path).watch(
-            args.pr, args.poll_interval, args.quiet_window, args.max_wait, args.ack, args.since, args.once
+            args.pr,
+            args.poll_interval,
+            args.quiet_window,
+            args.max_wait,
+            args.ack,
+            args.since,
+            args.once,
+            checks_only=args.checks_only,
         )
     except Exception as exc:
         print(json.dumps({"status": "error", "error": str(exc)}))

@@ -1,18 +1,21 @@
 # Tri-model advisor review
 
-Use this when a Shipcheck-watched PR has no incoming or in-progress review. Three models review the same diff and interrogate it so Shipcheck can apply bounded improvements. Inspired by Oh My Claude / Oh My Codex `ask` and `ccg` (Claude-Codex-Gemini) advisor routing; Shipcheck runs its own bounded lanes and does not need OMC.
+Load this file only when the run is not routine: the user asked for independent or multi-model review, the diff touches authentication, billing, destructive data, migrations, secrets, or deployment ownership, or the target repo's own instructions mark a touched boundary as release-gated. A routine run does not load this file, does not launch lanes, and records `Advisor: skipped (routine)`.
+
+Three models review the same diff and interrogate it so Shipcheck can apply bounded improvements. Inspired by Oh My Claude / Oh My Codex `ask` and `ccg` (Claude-Codex-Gemini) advisor routing; Shipcheck runs its own bounded lanes and does not need OMC.
 
 ## When to run
 
-Run after `watch_pr_feedback.py` returns `snapshot`, `settled`, or `timed_out` with no review-kind items (`review` or `thread_comment`), and none of these are true:
+Run only after the load condition above is true. If a human or bot review is already incoming or in progress, and the user did not ask for independent or multi-model review, do not launch lanes. Record `Advisor: not run (review incoming)`. Incoming means any of:
 
 - requested reviewers are still pending;
 - a GitHub review is pending or draft;
-- a review-bot check is in progress.
+- a review-bot check is in progress;
+- the watcher returned review-kind items (`review` or `thread_comment`) that still block.
 
-Run once per head SHA. If the head changes after advisor-driven fixes, a later watch may trigger it again.
+If the user asked for independent or multi-model review, run the lanes even if a review is incoming.
 
-Do not run when a human or bot review is already arriving. Do not post the result as a GitHub review.
+Run once per head SHA. If the head changes after advisor-driven fixes, a later non-routine run may launch lanes again. Do not post the result as a GitHub review. A missing or timed-out lane does not block `Ready to land` by itself.
 
 ## Try-model order
 
