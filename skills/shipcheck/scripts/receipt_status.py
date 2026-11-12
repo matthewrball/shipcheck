@@ -33,24 +33,38 @@ def git_out(repo: Path, *args: str) -> str:
     return proc.stdout
 
 
-def shipcheck_dir(repo: Path) -> Path:
-    proc = git(repo, "rev-parse", "--git-path", "shipcheck")
+def toplevel(start: Path) -> Path:
+    proc = git(start, "rev-parse", "--show-toplevel")
+    if proc.returncode:
+        raise RuntimeError(proc.stderr.strip() or "not a git repository")
+    return Path(proc.stdout.strip()).resolve()
+
+
+def shipcheck_dir(start: Path) -> Path:
+    top = toplevel(start)
+    proc = git(top, "rev-parse", "--git-path", "shipcheck")
     if proc.returncode:
         raise RuntimeError(proc.stderr.strip() or "not a git repository")
     path = Path(proc.stdout.strip())
-    return path if path.is_absolute() else repo / path
+    return path if path.is_absolute() else top / path
 
 
-def norm(path: str, repo: Path | None = None) -> str:
-    text = path.replace("\\", "/").strip()
-    if repo is not None and Path(text).is_absolute():
-        try:
-            text = Path(text).resolve().relative_to(repo.resolve()).as_posix()
-        except ValueError:
-            return text.rstrip("/")
-    while text.startswith("./"):
-        text = text[2:]
-    return text.rstrip("/")
+def root_relative(top: Path, base: Path, spec: str) -> str:
+    """Return a root-relative scope. Specs are relative to base, not the process cwd."""
+    text = spec.replace("\\", "/").strip()
+    if not text:
+        return ""
+    if Path(text).is_absolute():
+        candidate = Path(text).resolve()
+    else:
+        while text.startswith("./"):
+            text = text[2:]
+        candidate = base.resolve() if text in {"", "."} else (base / text).resolve()
+    try:
+        rel = candidate.relative_to(top.resolve()).as_posix()
+    except ValueError:
+        return ""
+    return rel or "."
 
 
 def is_excluded(path: str, excluded: set[str]) -> bool:
@@ -95,21 +109,22 @@ def hash_objects(repo: Path, paths: list[str]) -> dict[str, str]:
     return dict(zip(existing, hashes))
 
 
-def manifest(repo: Path, reviewed: list[str], excluded: list[str]) -> list[str]:
-    skip = {item for item in (norm(path, repo) for path in excluded) if item}
+def manifest(base: Path, reviewed: list[str], excluded: list[str]) -> list[str]:
+    top = toplevel(base)
+    skip = {item for item in (root_relative(top, base, path) for path in excluded) if item}
     tracked: dict[str, str] = {}
     extra: set[str] = set()
     for spec in reviewed:
-        spec = norm(spec, repo)
+        spec = root_relative(top, base, spec)
         if not spec:
             continue
-        for path, oid in staged_oids(repo, spec).items():
+        for path, oid in staged_oids(top, spec).items():
             if not is_excluded(path, skip):
                 tracked[path] = oid
-        for path in untracked_paths(repo, spec):
+        for path in untracked_paths(top, spec):
             if path not in tracked and not is_excluded(path, skip):
                 extra.add(path)
-    hashes = hash_objects(repo, [*tracked, *extra])
+    hashes = hash_objects(top, [*tracked, *extra])
     lines = [f"tracked\t{path}\t{oid}\t{hashes.get(path, '-')}" for path, oid in sorted(tracked.items())]
     lines += [f"untracked\t{path}\t-\t{hashes.get(path, '-')}" for path in sorted(extra)]
     return lines

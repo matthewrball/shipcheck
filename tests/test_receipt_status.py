@@ -254,6 +254,18 @@ class ReceiptStatusTests(unittest.TestCase):
         (repo / "env").write_text("name2\n")
         self.assertEqual(status(repo), "stale\nStatus: Ready to land (stale)\n")
 
+    def test_subdirectory_repo_unstaged_edit_is_stale(self):
+        tmp, repo = init_repo()
+        self.addCleanup(tmp.cleanup)
+        sub = repo / "src"
+        save(sub, reviewed=(".",), excluded=())
+        self.assertTrue(status(sub).startswith("current\n"))
+        (sub / "a.py").write_text("unstaged from subdir\n")
+        out = status(sub)
+        self.assertEqual(out, "stale\nStatus: Ready to land (stale)\n")
+        self.assertNotRegex(out, r"(?m)^current$")
+        self.assertNotRegex(out, r"(?m)^- Status: Ready to land$")
+
     def test_gitignored_file_in_reviewed_directory_does_not_stale(self):
         tmp, repo = init_repo()
         self.addCleanup(tmp.cleanup)
