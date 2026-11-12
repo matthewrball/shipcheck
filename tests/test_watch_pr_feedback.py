@@ -548,5 +548,101 @@ class WatchPrFeedbackTests(unittest.TestCase):
         self.assertTrue(item["blocks_ready"])
 
 
+    def test_empty_rollup_reports_zero_check_count(self):
+        gh = FakeGh([pull()], [page()], [clean_checks()])
+        with tempfile.TemporaryDirectory() as tmp:
+            result = watch.Watcher(gh, state_path=Path(tmp) / "state.json").watch(once=True)
+        self.assertEqual(result["status"], "snapshot")
+        self.assertEqual(result["check_count"], 0)
+
+    def test_passing_check_reports_one_check_count(self):
+        gh = FakeGh(
+            [pull()],
+            [page()],
+            [
+                {
+                    "headRefOid": "abc",
+                    "statusCheckRollup": [
+                        {"__typename": "CheckRun", "name": "ci", "status": "COMPLETED", "conclusion": "SUCCESS"}
+                    ],
+                }
+            ],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            result = watch.Watcher(gh, state_path=Path(tmp) / "state.json").watch(once=True)
+        self.assertEqual(result["status"], "snapshot")
+        self.assertEqual(result["check_count"], 1)
+
+    def test_checks_only_does_not_fetch_feedback_or_wait(self):
+        clock = FakeClock()
+        gh = FakeGh(
+            [pull()],
+            [page()],
+            [
+                {
+                    "headRefOid": "abc",
+                    "statusCheckRollup": [{"__typename": "StatusContext", "context": "ci", "state": "PENDING"}],
+                }
+            ],
+        )
+        calls = []
+        original = gh.__call__
+
+        def record(args):
+            calls.append(list(args))
+            return original(args)
+
+        gh.__call__ = record
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state.json"
+            result = watch.Watcher(gh, clock, clock.sleep, state).watch(checks_only=True)
+        self.assertEqual(result["status"], "pending")
+        self.assertIsNone(result["feedback"])
+        self.assertTrue(result["checks_only"])
+        self.assertEqual(result["check_count"], 1)
+        self.assertEqual(clock.now, 0)
+        self.assertFalse(state.exists())
+        self.assertFalse(any(args[:2] == ["api", "graphql"] for args in calls))
+
+    def test_checks_only_failure_beats_pending(self):
+        gh = FakeGh(
+            [pull()],
+            [page()],
+            [
+                {
+                    "headRefOid": "abc",
+                    "statusCheckRollup": [
+                        {"__typename": "CheckRun", "name": "lint", "status": "COMPLETED", "conclusion": "FAILURE"},
+                        {"__typename": "CheckRun", "name": "ci", "status": "IN_PROGRESS", "conclusion": ""},
+                    ],
+                }
+            ],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            result = watch.Watcher(gh, state_path=Path(tmp) / "state.json").watch(checks_only=True)
+        self.assertEqual(result["status"], "checks_failed")
+        self.assertIsNone(result["feedback"])
+
+    def test_main_checks_only_does_not_poll(self):
+        seen = {}
+
+        class Stub:
+            def __init__(self, state_path=None):
+                seen["state_path"] = state_path
+
+            def watch(self, *args, **kwargs):
+                seen["args"] = args
+                seen["kwargs"] = kwargs
+                return {"status": "snapshot"}
+
+        original = watch.Watcher
+        watch.Watcher = Stub
+        try:
+            code = watch.main(["--checks-only", "--pr", "7"])
+        finally:
+            watch.Watcher = original
+        self.assertEqual(code, 0)
+        self.assertTrue(seen["kwargs"].get("checks_only"))
+
 if __name__ == "__main__":
     unittest.main()
