@@ -37,9 +37,11 @@ flowchart TD
     T --> M
     T --> U["Review wait timed out"]
     W -- "No" --> RS["One checks-only re-snapshot"]
-    RS -- "Still pending" --> Q
-    RS -- "Clear" --> AD{"Advisor?"}
-    P -- "Green, or no checks configured" --> AD
+    RS -- "Still pending or still empty" --> EV{"No checks configured?"}
+    EV -- "No independent evidence" --> Q
+    EV -- "Workflows, required checks, and suites all absent" --> AD{"Advisor?"}
+    RS -- "Reported green" --> AD
+    P -- "Reported green" --> AD
     AD -- "Routine" --> O["Advisor skipped. Receipt"]
     AD -- "Asked, high-risk, or release-gated" --> S["Advisor lanes"]
     S --> N
@@ -89,7 +91,7 @@ Use shipcheck to fix safe issues. Preserve unrelated dirty files. Do not push.
 Use shipcheck to fix safe issues, open a draft PR, and snapshot checks. Mark it ready for review only if the receipt is Ready to land.
 ```
 
-Authorized PR work opens a draft. `gh pr ready` runs only when you asked to mark it ready and the receipt is `Ready to land`. The watcher takes one snapshot by default so it does not pin the session. If checks are still pending, it takes one checks-only re-snapshot. It waits in the background only when you ask.
+Authorized PR work opens a draft. `gh pr ready` runs only when you asked to mark it ready and the receipt is `Ready to land`. The watcher takes one snapshot by default so it does not pin the session. If checks are pending or the rollup is empty, it re-reads checks once. An empty rollup after that is still unreported unless independent evidence shows no checks are configured. It waits in the background only when you ask.
 
 ## Fix modes
 
@@ -113,7 +115,7 @@ Shipcheck never merges, lands, or deploys. It never replies to pull-request comm
 
 | Status | Meaning |
 | --- | --- |
-| `Ready to land` | Checks passed, or the repo has no checks configured, required review completed, and no blocking feedback remains. Pending checks after the checks-only re-snapshot are not this status. An empty rollup right after push is not green. |
+| `Ready to land` | Checks passed, or independent evidence shows no checks are configured, required review completed, and no blocking feedback remains. Pending checks block. An empty rollup, including after the checks-only re-snapshot, is not green and is not that evidence. |
 | `Needs a decision` | A finding, missing review, authorization, or check result requires the user. |
 | `Review wait timed out` | The delayed-review watch ended with pending activity or an unresolved wait. |
 

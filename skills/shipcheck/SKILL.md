@@ -71,7 +71,7 @@ Reviewer row, one value:
 
 Load [references/pr-watch.md](references/pr-watch.md) only when the user authorized a PR open, push, or update, or invoked Shipcheck on an existing PR. Do not load it to review a diff without pushing.
 
-Open new PRs as drafts (`gh pr create --draft`). After an authorized push, snapshot with `--once`. If the user did not ask to wait, do not start the 20-minute watcher. If that snapshot is `pending`, or `check_count` is 0 right after the push, run one `--checks-only` re-snapshot before the receipt. Pending after that re-snapshot still blocks `Ready to land`. `check_count` 0 on both snapshots means the repo has no checks configured; that does not block. The first empty rollup alone is not green. A cancelled run that a newer run replaced does not block; the watcher counts only the newest run of each check.
+Open new PRs as drafts (`gh pr create --draft`). After an authorized push, snapshot with `--once`. If the user did not ask to wait, do not start the 20-minute watcher. If that snapshot is `pending`, or `check_count` is 0 right after the push, run one `--checks-only` re-snapshot before the receipt. Pending after that re-snapshot still blocks `Ready to land`. `check_count` 0 after it is unreported and blocks too, unless independent evidence shows no checks are configured. Two empty snapshots are not that evidence. The evidence rule is in [references/pr-watch.md](references/pr-watch.md). The first empty rollup alone is not green. A cancelled run that a newer run replaced does not block; the watcher counts only the newest run of each check.
 
 `gh pr ready` only when the user asked to mark the PR ready and the receipt is `Ready to land`. If they asked and it is not, do not run it; say why in `Next`. Never merge, deploy, reply to PR comments, resolve review threads, or submit a GitHub review.
 
@@ -100,7 +100,7 @@ Copy this block. No extra sections, no bold, no file-list essay. Omit a row only
 - Next: <one line>
 ```
 
-Never say `Ready to land` when checks failed, need attention, are pending, or have not reported yet; blocking feedback is open; the user required independent review and no delegated reviewer completed; or a requested wait timed out. Right after a push, an empty check rollup is not green.
+Never say `Ready to land` when checks failed, need attention, are pending, or have not reported yet; blocking feedback is open; the user required independent review and no delegated reviewer completed; or a requested wait timed out. Right after a push, an empty check rollup is not green. A second empty rollup is still unreported unless the evidence rule in [references/pr-watch.md](references/pr-watch.md) is met.
 
 On the Watch row, append `; checks-only <status>` when that re-snapshot ran. Do not add a row for it.
 

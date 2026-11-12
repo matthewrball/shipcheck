@@ -21,7 +21,15 @@ If they did not ask to wait, and the snapshot is `pending` or `check_count` is 0
 python3 -B "$SHIPCHECK_DIR/scripts/watch_pr_feedback.py" --pr <url-or-number> --checks-only
 ```
 
-That command re-reads checks once. It does not fetch review feedback, write watcher state, or poll. `feedback: null` means not fetched. Do not treat it as "no feedback"; keep the earlier `--once` feedback. Pending after this re-snapshot still blocks `Ready to land`. `check_count` 0 on both snapshots means the repo has no checks configured; that does not block. The first empty rollup alone is not green.
+That command re-reads checks once. It does not fetch review feedback, write watcher state, or poll. `feedback: null` means not fetched. Do not treat it as "no feedback"; keep the earlier `--once` feedback. Pending after this re-snapshot still blocks `Ready to land`. `check_count` 0 after it is unreported, not green, and blocks too. Two empty snapshots are not evidence that no checks are configured. Registration can lag both, and a check suite can be queued with no rollup row yet.
+
+An empty rollup does not block only when independent evidence shows no checks are configured. That evidence is not another rollup of this head. Show all of:
+
+- `gh api repos/<owner>/<repo>/actions/workflows` has `total_count` 0
+- the base branch has no required status checks
+- `gh api repos/<owner>/<repo>/commits/<base-sha>/check-suites` has no suites
+
+A queued, in-progress, or conclusion-less check suite on this head or the base branch means checks have not reported, even when `check_count` is 0. If you cannot show all three, zero blocks. The first empty rollup alone is not green.
 
 Defaults: `--poll-interval 15`, `--quiet-window 120`, `--max-wait 1200`.
 Exit codes: `0` settled or snapshot, `1` pending checks, `3` feedback ready, `4` timed out, `5` checks failed, `6` checks need attention, `2` error.
